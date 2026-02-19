@@ -4,9 +4,6 @@ const path = require("path");
 const dataDirectory = path.join(__dirname, "../files");
 const uploadFileController = async (req, res) => {
   try {
-    console.log("Uploaded file object:", req.file);
-
-    // 1️⃣ Multer validation error
     if (req.fileValidationError) {
       return res.status(400).json({
         success: false,
@@ -14,7 +11,6 @@ const uploadFileController = async (req, res) => {
       });
     }
 
-    // 2️⃣ File existence check
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -22,11 +18,10 @@ const uploadFileController = async (req, res) => {
       });
     }
 
-    // 3️⃣ Use multer's absolute file path
     const filePath = req.file.path;
 
-    // 4️⃣ Read uploaded file
     let rawData;
+
     try {
       rawData = await fs.readFile(filePath, "utf-8");
     } catch (err) {
@@ -37,12 +32,9 @@ const uploadFileController = async (req, res) => {
       });
     }
 
-    // 5️⃣ Validate JSON format
-    let parsedJson;
     try {
-      parsedJson = JSON.parse(rawData);
+      JSON.parse(rawData);
     } catch (err) {
-      // Delete invalid file
       await fs.unlink(filePath);
       return res.status(400).json({
         success: false,
@@ -50,21 +42,16 @@ const uploadFileController = async (req, res) => {
       });
     }
 
-    // 6️⃣ Success response
     return res.status(200).json({
       success: true,
       message: "File uploaded successfully",
       fileName: req.file.filename,
-      originalName: req.file.originalname,
       size: req.file.size,
-      location: filePath,
       uploadedAt: new Date(),
-      keysCount: Object.keys(parsedJson).length, // optional insight
     });
 
   } catch (error) {
     console.error("UPLOAD ERROR:", error);
-
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -72,7 +59,6 @@ const uploadFileController = async (req, res) => {
     });
   }
 };
-
 const getAllFiles = async (req, res) => {
   try {
     const files = await fs.readdir(dataDirectory);
@@ -238,46 +224,46 @@ const updateFileItems = async (req, res) => {
     let totItemValSum = 0;
 
     const newItemList = clientItems.map((item, idx) => {
-      const qty       = Number(item.Qty)       || 0;
+      const qty = Number(item.Qty) || 0;
       const unitPrice = Number(item.UnitPrice) || 0;
-      const discount  = Number(item.Discount)  || 0;
+      const discount = Number(item.Discount) || 0;
 
-      const gross     = qty * unitPrice;
-      const discAmt   = gross * (discount / 100);
-      const taxable   = gross - discAmt;
+      const gross = qty * unitPrice;
+      const discAmt = gross * (discount / 100);
+      const taxable = gross - discAmt;
 
       // ── IMPORTANT: Do NOT recalculate IGST ───────────────────────
       // Use the value the client sent (which is preserved original)
-      const igst      = Number(item.IgstAmt)   || 0;
+      const igst = Number(item.IgstAmt) || 0;
       const totalItem = Number(item.TotItemVal) || (taxable + igst);
 
-      assVal       += taxable;
-      igstVal      += igst;
+      assVal += taxable;
+      igstVal += igst;
       discountTotal += discAmt;
       totItemValSum += totalItem;
 
       return {
         ...item, // keep everything client sent: PrdDesc, HsnCd, GstRt, IgstAmt, etc.
         SlNo: String(idx + 1),
-        TotAmt:     Number(taxable.toFixed(2)),
-        AssAmt:     Number(taxable.toFixed(2)),
+        TotAmt: Number(taxable.toFixed(2)),
+        AssAmt: Number(taxable.toFixed(2)),
         // IgstAmt:    ← kept as sent by client (original value preserved)
         TotItemVal: Number(totalItem.toFixed(2)),
-        CgstAmt:    0,
-        SgstAmt:    0,
-        CesRt:      item.CesRt ?? 0,
-        CesAmt:     0,
+        CgstAmt: 0,
+        SgstAmt: 0,
+        CesRt: item.CesRt ?? 0,
+        CesAmt: 0,
         CesNonAdvlAmt: 0,
       };
     });
 
     // Other charges & rounding ─ use client value if provided
-    const othChrg = 
+    const othChrg =
       clientValDtls?.OthChrg !== undefined && clientValDtls?.OthChrg !== null
         ? Number(clientValDtls.OthChrg)
         : Number(invoice.ValDtls?.OthChrg ?? 0);
 
-    const rndOff = 
+    const rndOff =
       clientValDtls?.RndOffAmt !== undefined && clientValDtls?.RndOffAmt !== null
         ? Number(clientValDtls.RndOffAmt)
         : Number(invoice.ValDtls?.RndOffAmt ?? 0);
@@ -287,13 +273,13 @@ const updateFileItems = async (req, res) => {
     // Build clean ValDtls
     invoice.ValDtls = {
       ...(invoice.ValDtls || {}),
-      AssVal:    Number(assVal.toFixed(2)),
-      CgstVal:   0,
-      SgstVal:   0,
-      IgstVal:   Number(igstVal.toFixed(2)),     // summed from preserved item.IgstAmt
-      CesVal:    0,
-      Discount:  Number(discountTotal.toFixed(2)),
-      OthChrg:   othChrg,
+      AssVal: Number(assVal.toFixed(2)),
+      CgstVal: 0,
+      SgstVal: 0,
+      IgstVal: Number(igstVal.toFixed(2)),     // summed from preserved item.IgstAmt
+      CesVal: 0,
+      Discount: Number(discountTotal.toFixed(2)),
+      OthChrg: othChrg,
       RndOffAmt: rndOff,
       TotInvVal: finalTotInvVal,
     };
@@ -332,7 +318,7 @@ const updateFileItems = async (req, res) => {
     });
   }
 };
-const downloadFile = async (req, res) => {
+const downloadFile1 = async (req, res) => {
   try {
     const { fileName } = req.params;
 
@@ -393,6 +379,73 @@ const downloadFile = async (req, res) => {
   }
 };
 
+const downloadFile = async (req, res) => {
+  console.log("hi")
+  try {
+    const { fileName } = req.params;
+
+    if (!fileName) {
+      return res.status(400).json({
+        success: false,
+        message: "File name is required",
+      });
+    }
+
+    // Absolute safe base directory
+    const dataDirectory = path.resolve(__dirname, "../files");
+
+    // Secure file path
+    const safeFilePath = path.normalize(
+      path.join(dataDirectory, fileName)
+    );
+
+    // Prevent path traversal
+    if (!safeFilePath.startsWith(dataDirectory)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied - invalid path",
+      });
+    }
+
+    // Check file exists
+    try {
+      await fs.access(safeFilePath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        message: `File not found: ${fileName}`,
+      });
+    }
+
+    // Clean file name for download
+    const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    // Send file
+    res.download(safeFilePath, cleanFileName, async (err) => {
+      if (err) {
+        console.error("Download error:", err);
+        return;
+      }
+
+      try {
+        console.log()
+        // Delete file after successful download
+        await fs.unlink(safeFilePath);
+        console.log(`File deleted after download: ${fileName}`);
+      } catch (deleteError) {
+        console.error("Error deleting file:", deleteError);
+      }
+    });
+
+  } catch (error) {
+    console.error("Download controller error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
 module.exports = {
   getAllFiles,
   getAllFilesWithContent,
