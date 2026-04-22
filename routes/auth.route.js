@@ -1,0 +1,10 @@
+const express = require("express");
+const router = express.Router();
+const { login, me, refresh, logout } = require("../controllers/auth.controller");
+const { authenticateJWT } = require("../middlewares/auth.middleware");
+router.post("/login", login);
+router.use(authenticateJWT);
+router.get("/me", me);
+router.post("/refresh", refresh);
+router.post("/logout", logout);
+module.exports = router;

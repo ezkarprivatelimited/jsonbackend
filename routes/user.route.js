@@ -1,0 +1,10 @@
+const mongoose = require("mongoose");
+const express = require("express");
+const router = express.Router();
+const User = require("../schema/user.schema.js");
+const { authenticateJWT, authorizeRoles } = require("../middlewares/auth.middleware");
+const { getAllUsers, createUser, updateUser, deleteUser } = require("../controllers/user.controller");
+router.use(authenticateJWT, authorizeRoles("admin"));
+router.route("/").get(getAllUsers).post(createUser);
+router.route("/:id").put(updateUser).delete(deleteUser);
+module.exports = router;

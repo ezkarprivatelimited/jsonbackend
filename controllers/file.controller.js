@@ -1,162 +1,114 @@
 const fs = require("fs").promises;
 const path = require("path");
-
+const User = require("../schema/user.schema.js");
 const dataDirectory = path.join(__dirname, "../files");
 const uploadFileController = async (req, res) => {
-  try {
-    if (req.fileValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: req.fileValidationError,
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No file uploaded",
-      });
-    }
-
-    const filePath = req.file.path;
-
-    let rawData;
-
     try {
-      rawData = await fs.readFile(filePath, "utf-8");
-    } catch (err) {
-      console.error("File Read Error:", err);
-      return res.status(500).json({
-        success: false,
-        message: "Unable to read uploaded file",
-      });
+        const { id } = req.user ?? {};
+        if (!id) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        if (req.fileValidationError) {
+            return res.status(400).json({ success: false, message: req.fileValidationError });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "No file uploaded" });
+        }
+
+        const filePath = req.file.path;
+        let rawData;
+        try {
+            rawData = await fs.readFile(filePath, "utf-8");
+        } catch (err) {
+            console.error("File Read Error:", err);
+            return res.status(500).json({ success: false, message: "Unable to read uploaded file" });
+        }
+
+        // ✅ Validate JSON BEFORE pushing to user.files
+        try {
+            JSON.parse(rawData);
+        } catch (err) {
+            await fs.unlink(filePath).catch(console.error); // cleanup disk
+            return res.status(400).json({ success: false, message: "Invalid JSON file format" });
+        }
+
+        // ✅ Only update DB after all validations pass
+        user.files.push({
+            filename: req.file.filename,
+            originalname: req.file.originalname,
+            path: filePath,
+            size: req.file.size,
+            mimetype: req.file.mimetype,
+        });
+
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "File uploaded successfully",
+            fileName: req.file.filename,
+            size: req.file.size,
+            uploadedAt: new Date(),
+        });
+
+    } catch (error) {
+        console.error("UPLOAD ERROR:", error);
+
+        // ✅ Attempt cleanup if file was uploaded but something else failed
+        if (req.file?.path) {
+            await fs.unlink(req.file.path).catch(console.error);
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+            error: error.message,
+        });
     }
-
-    try {
-      JSON.parse(rawData);
-    } catch (err) {
-      await fs.unlink(filePath);
-      return res.status(400).json({
-        success: false,
-        message: "Invalid JSON file format",
-      });
+};
+const getFileById = async (req, res) => {
+  try {
+    const { id: fileId } = req.params;
+    const { id } = req.user;
+    if (!id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
-
-    return res.status(200).json({
-      success: true,
-      message: "File uploaded successfully",
-      fileName: req.file.filename,
-      size: req.file.size,
-      uploadedAt: new Date(),
-    });
-
-  } catch (error) {
-    console.error("UPLOAD ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
-  }
-};
-const getAllFiles = async (req, res) => {
-  try {
-    const files = await fs.readdir(dataDirectory);
-
-    return res.status(200).json({
-      success: true,
-      totalFiles: files.length,
-      files,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Error reading directory",
-      error: error.message,
-    });
-  }
-};
-const getAllFilesWithContent = async (req, res) => {
-  try {
-    const files = await fs.readdir(dataDirectory);
-
-    const fileData = await Promise.all(
-      files.map(async (file) => {
-        const filePath = path.join(dataDirectory, file);
-        const content = await fs.readFile(filePath, "utf8");
-
-        return {
-          fileName: file,
-          content,
-        };
-      })
-    );
-
-    return res.status(200).json({
-      success: true,
-      totalFiles: fileData.length,
-      files: fileData,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Error reading files",
-      error: error.message,
-    });
-  }
-};
-const getFileByName = async (req, res) => {
-  try {
-    const { fileName } = req.params;
-
-    if (!fileName) {
-      return res.status(400).json({
-        success: false,
-        message: "File name is required",
-      });
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
-
-    // Normalize path to prevent traversal
-    const safeFilePath = path.normalize(
-      path.join(dataDirectory, fileName)
-    );
-
-    // Ensure requested file is inside the directory
+    const file = user.files.find((file) => file._id.toString() === fileId);
+    if (!file) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+    const safeFilePath = path.normalize(path.join(dataDirectory, file.path));
     if (!safeFilePath.startsWith(dataDirectory)) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied",
-      });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
-
-    // Check file exists
     try {
       await fs.access(safeFilePath);
     } catch {
-      return res.status(404).json({
-        success: false,
-        message: "File not found",
-      });
+      return res.status(404).json({ success: false, message: "File not found" });
     }
 
-    const extension = path.extname(fileName).toLowerCase();
-
-    // If JSON → return parsed JSON
+    const extension = path.extname(file.path).toLowerCase();
     if (extension === ".json") {
       const fileContent = await fs.readFile(safeFilePath, "utf8");
-
       return res.status(200).json({
         success: true,
-        fileName,
-        data: JSON.parse(fileContent),
+        file: { ...file.toObject(), content: JSON.parse(fileContent) },
       });
     }
-
-    // Otherwise → stream file
     return res.download(safeFilePath);
-
   } catch (error) {
-    console.error("File Fetch Error:", error);
+    console.error("File retrieval error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -166,13 +118,22 @@ const getFileByName = async (req, res) => {
 };
 const updateFileItems = async (req, res) => {
   try {
-    const { fileName } = req.params;
+    const { id: fileId } = req.params;
     const { ItemList: clientItems, ValDtls: clientValDtls } = req.body;
-    if (!fileName) {
-      return res.status(400).json({
-        success: false,
-        message: "File name is required",
-      });
+    const { id } = req.user;
+
+    if (!id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const file = user.files.find((file) => file._id.toString() === fileId);
+    if (!file) {
+      return res.status(404).json({ success: false, message: "File not found" });
     }
 
     if (!Array.isArray(clientItems) || clientItems.length === 0) {
@@ -181,28 +142,29 @@ const updateFileItems = async (req, res) => {
         message: "ItemList must be a non-empty array",
       });
     }
-    const dataDirectory = path.resolve(__dirname, "../files");
-    const safeFilePath = path.normalize(
-      path.join(dataDirectory, fileName)
-    );
 
+    const safeFilePath = path.resolve(file.path);
+    const dataDirectory = path.resolve(__dirname, "../files");
     if (!safeFilePath.startsWith(dataDirectory)) {
       return res.status(403).json({
         success: false,
-        message: "Invalid file path – access denied",
+        message: "Invalid file path access denied",
       });
     }
+
     try {
       await fs.access(safeFilePath);
     } catch {
       return res.status(404).json({
         success: false,
-        message: "File not found",
+        message: "File not found on disk",
       });
     }
+
     const content = await fs.readFile(safeFilePath, "utf8");
     let originalData = JSON.parse(content);
     let invoice;
+
     if (Array.isArray(originalData) && originalData.length > 0) {
       invoice = originalData[0];
     } else if (originalData?.data?.[0]) {
@@ -222,12 +184,14 @@ const updateFileItems = async (req, res) => {
         message: "Missing or invalid ItemList in file",
       });
     }
+
     if (clientItems.length !== invoice.ItemList.length) {
       return res.status(400).json({
         success: false,
         message: "Item count mismatch. Modification not allowed.",
       });
     }
+
     let assVal = 0;
     let igstVal = 0;
     let discountTotal = 0;
@@ -245,8 +209,8 @@ const updateFileItems = async (req, res) => {
       const discAmt = gross * (discount / 100);
       const taxable = gross - discAmt;
       const igst = Number(clientItem.IgstAmt) || 0;
-      const totalItem =
-        Number(clientItem.TotItemVal) || taxable + igst;
+      const totalItem = Number(clientItem.TotItemVal) || taxable + igst;
+
       existingItem.SlNo = String(idx + 1);
       existingItem.Qty = qty;
       existingItem.UnitPrice = unitPrice;
@@ -259,12 +223,14 @@ const updateFileItems = async (req, res) => {
       existingItem.SgstAmt = existingItem.SgstAmt ?? 0;
       existingItem.CesRt = existingItem.CesRt ?? 0;
       existingItem.CesAmt = existingItem.CesAmt ?? 0;
-      existingItem.CesNonAdvlAmt =existingItem.CesNonAdvlAmt ?? 0;
+      existingItem.CesNonAdvlAmt = existingItem.CesNonAdvlAmt ?? 0;
+
       assVal += taxable;
       igstVal += igst;
       discountTotal += discAmt;
       totItemValSum += totalItem;
     });
+
     const othChrg =
       clientValDtls?.OthChrg !== undefined
         ? Number(clientValDtls.OthChrg)
@@ -282,7 +248,8 @@ const updateFileItems = async (req, res) => {
     invoice.ValDtls = invoice.ValDtls || {};
     invoice.ValDtls.AssVal = Number(assVal.toFixed(2));
     invoice.ValDtls.OthChrg = othChrg;
-    invoice.ValDtls.Discount=0
+    invoice.ValDtls.Discount = 0;
+
     let dataToWrite;
     if (Array.isArray(originalData)) {
       dataToWrite = [invoice];
@@ -301,7 +268,7 @@ const updateFileItems = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Invoice updated successfully",
-      file: fileName,
+      file: file.name,
       finalTotInvVal,
       othChrgUsed: othChrg,
       itemCount: invoice.ItemList.length,
@@ -309,7 +276,6 @@ const updateFileItems = async (req, res) => {
 
   } catch (err) {
     console.error("Update failed:", err);
-
     return res.status(500).json({
       success: false,
       message: "Failed to update file",
@@ -317,24 +283,29 @@ const updateFileItems = async (req, res) => {
     });
   }
 };
-const downloadFile = async (req, res) => {
-  console.log("hi")
+const downloadFileById = async (req, res) => {
   try {
-    const { fileName } = req.params;
+    const { id: fileId } = req.params;
+    const { id } = req.user;
 
-    if (!fileName) {
-      return res.status(400).json({
-        success: false,
-        message: "File name is required",
-      });
+    if (!id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    // Absolute safe base directory
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const file = user.files.find((file) => file._id.toString() === fileId);
+    if (!file) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+
     const dataDirectory = path.resolve(__dirname, "../files");
 
-    // Secure file path
     const safeFilePath = path.normalize(
-      path.join(dataDirectory, fileName)
+      path.join(dataDirectory, file.path)
     );
 
     // Prevent path traversal
@@ -344,21 +315,16 @@ const downloadFile = async (req, res) => {
         message: "Access denied - invalid path",
       });
     }
-
-    // Check file exists
     try {
       await fs.access(safeFilePath);
     } catch {
       return res.status(404).json({
         success: false,
-        message: `File not found: ${fileName}`,
+        message: `File not found: ${file.path}`,
       });
     }
+    const cleanFileName = file.path.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-    // Clean file name for download
-    const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-
-    // Send file
     res.download(safeFilePath, cleanFileName, async (err) => {
       if (err) {
         console.error("Download error:", err);
@@ -366,12 +332,15 @@ const downloadFile = async (req, res) => {
       }
 
       try {
-        console.log()
-        // Delete file after successful download
         await fs.unlink(safeFilePath);
-        console.log(`File deleted after download: ${fileName}`);
+        console.log(`File deleted after download: ${file.path}`);
+        user.files = user.files.filter(
+          (f) => f._id.toString() !== fileId
+        );
+        await user.save();
+        console.log(`File entry removed from user record: ${fileId}`);
       } catch (deleteError) {
-        console.error("Error deleting file:", deleteError);
+        console.error("Error during post-download cleanup:", deleteError);
       }
     });
 
@@ -385,10 +354,8 @@ const downloadFile = async (req, res) => {
   }
 };
 module.exports = {
-  getAllFiles,
-  getAllFilesWithContent,
-  getFileByName,
-  updateFileItems,
-  downloadFile,
-  uploadFileController
+    getFileById,
+    updateFileItems,
+    uploadFileController,
+    downloadFileById
 };
