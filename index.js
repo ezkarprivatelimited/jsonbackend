@@ -10,7 +10,7 @@ const user = require("./routes/user.route")
 const fileRoutesV1 = require("./routes/fileRoutes");
 const fileRoutesV2 = require("./routes/file.route");
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 const allowedOrigins = [
   "http://localhost:5173",
   "https://json-frontend-five.vercel.app"
@@ -38,7 +38,7 @@ app.use(cookieParser());
 app.use("/file", fileRoutesV1);
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/user", user);
-app.use("/api/v2/file", fileRoutesV2);
+app.use("/api/v1/file", fileRoutesV2);
 
 // Health route
 app.get("/", (req, res) => {

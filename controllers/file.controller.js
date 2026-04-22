@@ -1,4 +1,5 @@
 const fs = require("fs").promises;
+const mongoose = require("mongoose");
 const path = require("path");
 const User = require("../schema/user.schema.js");
 const dataDirectory = path.join(__dirname, "../files");
@@ -75,8 +76,9 @@ const uploadFileController = async (req, res) => {
 };
 const getFileById = async (req, res) => {
   try {
-    const { id: fileId } = req.params;
+    let { id: fileId } = req.params;
     const { id } = req.user;
+    console.log(fileId)
     if (!id) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
@@ -84,11 +86,13 @@ const getFileById = async (req, res) => {
     if (!user) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
-    const file = user.files.find((file) => file._id.toString() === fileId);
+    // console.log(user.files)
+    fileId=new mongoose.Types.ObjectId(fileId);
+    const file = user.files.id(fileId);
     if (!file) {
       return res.status(404).json({ success: false, message: "File not found" });
     }
-    const safeFilePath = path.normalize(path.join(dataDirectory, file.path));
+    const safeFilePath = path.normalize(path.join("", file.path))
     if (!safeFilePath.startsWith(dataDirectory)) {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
@@ -103,7 +107,7 @@ const getFileById = async (req, res) => {
       const fileContent = await fs.readFile(safeFilePath, "utf8");
       return res.status(200).json({
         success: true,
-        file: { ...file.toObject(), content: JSON.parse(fileContent) },
+        file: JSON.parse(fileContent) ,
       });
     }
     return res.download(safeFilePath);
