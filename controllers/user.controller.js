@@ -3,15 +3,15 @@ const { hashPassword } = require("../services/password");
 const mongoose = require("mongoose");
 exports.createUser = async (req, res) => {
     try {
-        const { email, password, role, name } = req.body;
-        if (!email || !password || !role || !name) {
+        const { email, password, role, name,phone ,address } = req.body;
+        if (!email || !password || !role || !name || !phone) {
             return res.status(400).json({ message: "Email, password, role and name are required" });
         }
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ message: "Invalid email format" });
         }
-        const allowedRoles = ["admin", "user"];
+        const allowedRoles = ["admin", "trader", "manufacturer"];
         if (!allowedRoles.includes(role)) {
             return res.status(400).json({ message: `Invalid role. Allowed roles: ${allowedRoles.join(", ")}` });
         }
@@ -20,7 +20,7 @@ exports.createUser = async (req, res) => {
             return res.status(400).json({ message: "Email is already in use" });
         }
         const hashedPassword = await hashPassword(password);
-        const user = await User.create({ email, password: hashedPassword, role, name });
+        const user = await User.create({ email, password: hashedPassword, role, name, phone, address });
         const { password: _, ...safeUser } = user.toObject();
         res.status(201).json({ message: "User created successfully", user: safeUser });
     } catch (error) {
@@ -34,7 +34,7 @@ exports.updateUser = async (req, res) => {
         if (!id || !mongoose.Types.ObjectId.isValid(id)) {
             return res.status(400).json({ message: "Invalid user ID format" });
         }
-        const { email, password, role, subsValid, isActive } = req.body;
+        const { email, password, role, subsValid, isActive, phone, address } = req.body;
         const updateQuery = {};
         if (email) {
             updateQuery.email = email;
@@ -50,6 +50,12 @@ exports.updateUser = async (req, res) => {
         }
         if (isActive !== undefined) {
             updateQuery.isActive = isActive;
+        }
+        if (phone) {
+            updateQuery.phone = phone;
+        }
+        if (address) {
+            updateQuery.address = address;
         }
         const user = await User.findByIdAndUpdate(id, updateQuery, { new: true });
         if (!user) {

@@ -50,13 +50,14 @@ const uploadFileController = async (req, res) => {
         });
 
         await user.save();
-
+        const findFile = user.files.find(file => file.filename === req.file.filename);
         return res.status(200).json({
             success: true,
             message: "File uploaded successfully",
             fileName: req.file.filename,
             size: req.file.size,
             uploadedAt: new Date(),
+            fileId: findFile ? findFile._id : null,
         });
 
     } catch (error) {
