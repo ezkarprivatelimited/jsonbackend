@@ -104,13 +104,17 @@ const getFileById = async (req, res) => {
 				.status(404)
 				.json({ success: false, message: "File not found" });
 		}
-		const safeFilePath = path.normalize(path.join("", file.path));
+		// Normalize and log paths for debugging
+		const dataDirectory = path.resolve(__dirname, "../files");
+		let safeFilePath = path.resolve(file.path);
 		if (!safeFilePath.startsWith(dataDirectory)) {
+			console.error("getFileById - Access denied: path check failed");
 			return res.status(403).json({ success: false, message: "Access denied" });
 		}
 		try {
 			await fs.access(safeFilePath);
 		} catch {
+			console.error("getFileById - File not found on disk:", safeFilePath);
 			return res
 				.status(404)
 				.json({ success: false, message: "File not found" });
@@ -119,9 +123,21 @@ const getFileById = async (req, res) => {
 		const extension = path.extname(file.path).toLowerCase();
 		if (extension === ".json") {
 			const fileContent = await fs.readFile(safeFilePath, "utf8");
+			let parsed = JSON.parse(fileContent);
+			// Always return as array
+			let fileArray;
+			if (Array.isArray(parsed)) {
+				fileArray = parsed;
+			} else if (parsed && Array.isArray(parsed.data)) {
+				fileArray = parsed.data;
+			} else if (parsed) {
+				fileArray = [parsed];
+			} else {
+				fileArray = [];
+			}
 			return res.status(200).json({
 				success: true,
-				file: JSON.parse(fileContent),
+				file: fileArray,
 			});
 		}
 		return res.download(safeFilePath);
@@ -324,16 +340,9 @@ const downloadFileById = async (req, res) => {
 		}
 
 		const dataDirectory = path.resolve(__dirname, "../files");
-		let safeFilePath = file.path;
-		if (safeFilePath.startsWith(dataDirectory + path.sep)) {
-			safeFilePath = path.normalize(safeFilePath);
-		} else if (path.isAbsolute(safeFilePath)) {
-			safeFilePath = path.normalize(safeFilePath);
-		} else {
-			safeFilePath = path.join(dataDirectory, safeFilePath);
-		}
-
+		let safeFilePath = path.resolve(file.path);
 		if (!safeFilePath.startsWith(dataDirectory)) {
+			console.error("downloadFileById - Access denied: path check failed");
 			return res.status(403).json({
 				success: false,
 				message: "Access denied - invalid path",
@@ -342,6 +351,7 @@ const downloadFileById = async (req, res) => {
 		try {
 			await fs.access(safeFilePath);
 		} catch {
+			console.error("downloadFileById - File not found on disk:", safeFilePath);
 			return res.status(404).json({
 				success: false,
 				message: `File not found: ${file.path}`,
@@ -355,12 +365,28 @@ const downloadFileById = async (req, res) => {
 				return;
 			}
 
+			// Try to delete the file from disk first
 			try {
 				await fs.unlink(safeFilePath);
+			} catch (deleteError) {
+				console.error(
+					"Error deleting file from disk after download:",
+					deleteError,
+				);
+				// Do not remove from user.files if file deletion failed
+				return;
+			}
+
+			// Only remove from user.files if file was deleted from disk
+			try {
 				user.files = user.files.filter((f) => f._id.toString() !== fileId);
 				await user.save();
-			} catch (deleteError) {
-				console.error("Error during post-download cleanup:", deleteError);
+			} catch (userSaveError) {
+				console.error(
+					"Error updating user after file deletion:",
+					userSaveError,
+				);
+				// Optionally: log or alert for manual cleanup
 			}
 		});
 	} catch (error) {
