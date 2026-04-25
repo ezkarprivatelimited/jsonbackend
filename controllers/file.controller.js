@@ -156,6 +156,8 @@ const updateFileItems = async (req, res) => {
 		const { ItemList: clientItems, ValDtls: clientValDtls } = req.body;
 		const { id } = req.user;
 
+		console.log(clientValDtls);
+
 		if (!id) {
 			return res.status(401).json({ success: false, message: "Unauthorized" });
 		}
@@ -277,14 +279,26 @@ const updateFileItems = async (req, res) => {
 				? Number(clientValDtls.RndOffAmt)
 				: Number(invoice.ValDtls?.RndOffAmt ?? 0);
 
+		// Calculate Discount to subtract from total
+		let discountToApply = 0;
+		if (clientValDtls?.Discount !== undefined) {
+			discountToApply = Number(clientValDtls.Discount);
+		}
+
 		const finalTotInvVal = Number(
-			(totItemValSum + othChrg + rndOff).toFixed(2),
+			(totItemValSum + othChrg + rndOff - discountToApply).toFixed(2),
 		);
 
 		invoice.ValDtls = invoice.ValDtls || {};
 		invoice.ValDtls.AssVal = Number(assVal.toFixed(2));
 		invoice.ValDtls.OthChrg = othChrg;
-		invoice.ValDtls.Discount = 0;
+		// Set Discount from payload as a number, fallback to previous or 0
+		invoice.ValDtls.Discount =
+			clientValDtls?.Discount !== undefined
+				? Number(clientValDtls.Discount)
+				: Number(0);
+		// Update TotInvVal in the file
+		invoice.ValDtls.TotInvVal = finalTotInvVal;
 
 		let dataToWrite;
 		if (Array.isArray(originalData)) {
